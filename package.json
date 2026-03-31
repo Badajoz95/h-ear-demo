@@ -1,0 +1,9 @@
+{
+  "name": "h-ear-demo",
+  "version": "0.1.1",
+  "description": "Demo scripts for H-ear World — AI-powered sound classification",
+  "dependencies": {
+    "@h-ear/mcp-server": "^0.1.1"
+  },
+  "license": "MIT"
+}
