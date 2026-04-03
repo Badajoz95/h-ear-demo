@@ -7,8 +7,8 @@ Live demos for [H-ear World](https://h-ear.world) — AI-powered sound classific
 | Demo | Description |
 |------|-------------|
 | [OpenClaw](demos/openclaw.md) | OpenClaw skill commands — simulates WhatsApp/Telegram/Slack/Discord/Teams usage |
-| [Webcam](demos/webcam.md) | TP-Link Tapo C100 edge audio acquisition — RTSP capture + upload to classification API |
-| [Webhook](demos/webhook.md) | Enterprise webhook alerts — submit audio, receive callback, check for target sounds |
+| [Webcam](demos/webcam.md) | TP-Link Tapo C100 edge audio acquisition — RTSP capture, classify (base64/multipart), poll jobs, usage, classes |
+| [Webhook](demos/webhook.md) | Notification alert demo — submits prod demo audio via URL or local file, dual alert rules (Respiratory sounds >= 50%, Sounds of things >= 60%), per-request callbacks + persistent webhooks with HMAC signature verification |
 
 ## Quick Start
 
@@ -19,8 +19,11 @@ node demos/openclaw.mjs --key <api-key>
 # Webcam capture + classify
 node demos/webcam.mjs --full --key <api-key>
 
-# Webhook alert flow
+# Notification alert — URL mode (default, uses prod demo audio)
 node demos/webhook.mjs --key <api-key>
+
+# Or with local bundled file
+node demos/webhook.mjs --key <api-key> --file demos/demo-60s.mp3
 ```
 
 Each demo has a companion `.md` doc with full usage, options, and architecture diagrams.

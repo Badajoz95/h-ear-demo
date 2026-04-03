@@ -4,16 +4,17 @@
  *
  * Captures audio from a Wi-Fi camera's RTSP stream and uploads
  * via the Enterprise API (v1/classify). Supports multiple environments.
- * Requires --key <api-key> for upload.
+ * Auth: --oauth (auto M2M token via Key Vault + Auth0) or --key <api-key>
  *
  * Usage:
  *   node packages/demo/demos/webcam.mjs --probe                          # Probe camera (local API)
  *   node packages/demo/demos/webcam.mjs --env dev --probe                # Probe camera (dev API)
  *   node packages/demo/demos/webcam.mjs --capture --duration 10          # Capture 10s audio
- *   node packages/demo/demos/webcam.mjs --full --key <api-key>            # capture + upload (fire-and-forget)
- *   node packages/demo/demos/webcam.mjs --full --key <key> --await       # capture + upload + show AI results
- *   node packages/demo/demos/webcam.mjs --full --key <key> --gather      # capture all, then upload all
- *   node packages/demo/demos/webcam.mjs --env dev --full --key <key>     # Full pipeline against dev
+ *   node packages/demo/demos/webcam.mjs --full --oauth                   # capture + upload (OAuth, fire-and-forget)
+ *   node packages/demo/demos/webcam.mjs --full --key <api-key>           # capture + upload (API key)
+ *   node packages/demo/demos/webcam.mjs --full --oauth --poll            # capture + upload + poll for results
+ *   node packages/demo/demos/webcam.mjs --full --oauth --gather          # capture all, then upload all
+ *   node packages/demo/demos/webcam.mjs --env prod --full --oauth        # Full pipeline against prod
  *
  * Camera: TP-Link Tapo C100 (Home Security Wi-Fi Camera)
  *   Model: Tapo C100 | Power: 5V 0.6A | Audio: Built-in mic + speaker
@@ -29,6 +30,7 @@ import { execSync, spawnSync } from 'child_process';
 import { existsSync, mkdirSync, readFileSync, statSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
+import { acquireOAuthToken, resolveApiUrl } from './demo-auth.mjs';
 
 // --- Camera Configuration --------------------------------------------------------
 // Set these via environment variables or edit directly for your camera
@@ -58,6 +60,21 @@ let FFMPEG = 'ffmpeg';
 let FFPROBE = 'ffprobe';
 let API_BASE_URL = '';
 let API_KEY = '';
+let BEARER_TOKEN = '';
+
+// --- Auth Helpers ----------------------------------------------------------------
+
+/** Build auth headers — bearer token takes precedence over API key */
+function buildAuthHeaders(contentType = 'application/json') {
+    const h = {};
+    if (contentType) h['Content-Type'] = contentType;
+    if (BEARER_TOKEN) {
+        h['Authorization'] = `Bearer ${BEARER_TOKEN}`;
+    } else if (API_KEY) {
+        h['X-NCM-Api-Key'] = API_KEY;
+    }
+    return h;
+}
 
 // --- Helpers ---------------------------------------------------------------------
 
@@ -105,16 +122,18 @@ function parseArgs() {
         console.error(`  Invalid env: ${env}. Valid: ${VALID_ENVS.join(', ')}`);
         process.exit(1);
     }
+    const get = (flag) => {
+        const idx = args.indexOf(flag);
+        return idx >= 0 && args[idx + 1] ? args[idx + 1] : null;
+    };
     return {
         env,
         probe:    args.includes('--probe'),
         capture:  args.includes('--capture') || args.includes('--full'),
         upload:   args.includes('--upload') || args.includes('--full'),
         full:     args.includes('--full'),
-        key: (() => {
-            const idx = args.indexOf('--key');
-            return idx >= 0 && args[idx + 1] ? args[idx + 1] : null;
-        })(),
+        key:          get('--key'),
+        oauth:        args.includes('--oauth'),
         duration: (() => {
             const idx = args.indexOf('--duration');
             return idx >= 0 && args[idx + 1] ? parseInt(args[idx + 1], 10) : 30;
@@ -128,7 +147,16 @@ function parseArgs() {
             return idx >= 0 && args[idx + 1] ? parseInt(args[idx + 1], 10) : 20;
         })(),
         await_:   args.includes('--await'),
+        poll:     args.includes('--poll') || args.includes('--await'),
         gather:   args.includes('--gather'),
+        health:   args.includes('--health'),
+        usage:    args.includes('--usage'),
+        classes:  args.includes('--classes'),
+        job:      get('--job'),
+        events:   get('--events'),
+        cameraIp:   get('--camera-ip'),
+        cameraUser: get('--camera-user'),
+        cameraPass: get('--camera-pass'),
         help:     args.includes('--help') || args.includes('-h') || args.length === 0,
     };
 }
@@ -142,7 +170,8 @@ function parseArgs() {
 function resolveEnvironment(env) {
     logSection(`Environment (${env})`);
 
-    const apiUrl = API_URLS[env];
+    // Env var override > derived from demo-auth config
+    const apiUrl = API_URLS[env] || resolveApiUrl(env);
     if (!apiUrl) {
         log('❌', `No API URL configured for env: ${env}`);
         log('🔍', `Set API_URL_${env.toUpperCase()} environment variable`);
@@ -331,60 +360,290 @@ function displayResults(result) {
     }
 }
 
-// --- Upload: Send Audio to Enterprise API ----------------------------------------
+// --- Health: Check API Status ----------------------------------------------------
 
-async function uploadAudio(audioFile, { awaitResults = false } = {}) {
-    logSection(`Uploading to Enterprise API`);
+async function checkHealth() {
+    logSection('API Health Check');
+    const endpoint = `${API_BASE_URL}/v1/health`;
+    log('📡', `GET ${endpoint}`);
+
+    try {
+        const response = await fetch(endpoint, {
+            method: 'GET',
+            headers: { 'Content-Type': 'application/json' },
+            signal: AbortSignal.timeout(10000),
+        });
+
+        const result = await response.json();
+        if (!response.ok) {
+            log('❌', `Health check failed (${response.status}): ${result.error || response.statusText}`);
+            return null;
+        }
+
+        log('✅', `Status: ${result.status}`);
+        if (result.version) log('📊', `Version: ${result.version}`);
+        if (result.deployedTimestamp) log('📊', `Deployed: ${result.deployedTimestamp}`);
+        return result;
+    } catch (e) {
+        log('❌', `Health check failed: ${e.message}`);
+        return null;
+    }
+}
+
+// --- Usage: Show API Quota -------------------------------------------------------
+
+async function showUsage() {
+    logSection('API Usage / Quota');
+    const endpoint = `${API_BASE_URL}/v1/usage`;
+    log('📡', `GET ${endpoint}`);
+
+    try {
+        const response = await fetch(endpoint, {
+            method: 'GET',
+            headers: buildAuthHeaders(),
+            signal: AbortSignal.timeout(10000),
+        });
+
+        const result = await response.json();
+        if (!response.ok) {
+            log('❌', `Usage check failed (${response.status}): ${result.error || response.statusText}`);
+            return null;
+        }
+
+        log('📊', `Plan: ${result.tier || result.plan}`);
+        log('📊', `Minutes: ${result.period?.minutesUsed?.toFixed(1) ?? result.minutesUsed ?? '?'} / ${result.period?.minutesLimit ?? result.minutesTotal ?? '?'}`);
+        log('📊', `Calls today: ${result.daily?.used ?? result.callsToday ?? '?'} / ${result.daily?.limit ?? result.callsLimit ?? '?'}`);
+        log('📊', `Period: ${result.period?.start ?? result.periodStart ?? '?'} → ${result.period?.end ?? result.periodEnd ?? '?'}`);
+        return result;
+    } catch (e) {
+        log('❌', `Usage check failed: ${e.message}`);
+        return null;
+    }
+}
+
+// --- Classes: List Sound Classes -------------------------------------------------
+
+async function listClasses() {
+    logSection('Sound Classes');
+    const endpoint = `${API_BASE_URL}/v1/classes`;
+    log('📡', `GET ${endpoint}`);
+
+    try {
+        const response = await fetch(endpoint, {
+            method: 'GET',
+            headers: { 'Content-Type': 'application/json' },
+            signal: AbortSignal.timeout(15000),
+        });
+
+        const result = await response.json();
+        if (!response.ok) {
+            log('❌', `Classes failed (${response.status}): ${result.error || response.statusText}`);
+            return null;
+        }
+
+        log('📊', `Taxonomy: ${result.taxonomy}`);
+        log('📊', `Total classes: ${result.total} (filtered: ${result.totalFiltered})`);
+        if (result.availableTaxonomies?.length > 0) {
+            log('📊', `Available taxonomies: ${result.availableTaxonomies.join(', ')}`);
+        }
+        if (result.categories?.length > 0) {
+            log('📊', `Categories (${result.categories.length}):`);
+            result.categories.forEach(cat => log('  ', `  ${cat}`));
+        }
+        if (result.classes?.length > 0) {
+            const preview = result.classes.slice(0, 10);
+            log('🤖', `First ${preview.length} classes:`);
+            preview.forEach((c, i) => {
+                log('  ', `  ${i + 1}. ${c.name} [${c.category}]`);
+            });
+            if (result.classes.length > 10) {
+                log('  ', `  ... and ${result.classes.length - 10} more`);
+            }
+        }
+        return result;
+    } catch (e) {
+        log('❌', `Classes failed: ${e.message}`);
+        return null;
+    }
+}
+
+// --- Job: Retrieve Existing Job --------------------------------------------------
+
+async function getJob(jobId) {
+    logSection(`Job: ${jobId}`);
+    const endpoint = `${API_BASE_URL}/v1/jobs/${jobId}`;
+    log('📡', `GET ${endpoint}`);
+
+    try {
+        const response = await fetch(endpoint, {
+            method: 'GET',
+            headers: buildAuthHeaders(),
+            signal: AbortSignal.timeout(10000),
+        });
+
+        const result = await response.json();
+        if (!response.ok) {
+            log('❌', `Job fetch failed (${response.status}): ${result.error || response.statusText}`);
+            return null;
+        }
+
+        log('🏷️', `Job ID: ${result.jobId}`);
+        log('📊', `Status: ${result.status}`);
+        if (result.fileName) log('📊', `File: ${result.fileName}`);
+        if (result.duration != null) log('⏱️', `Duration: ${result.duration.toFixed(1)}s`);
+        if (result.eventCount != null) log('📊', `Events: ${result.eventCount}`);
+        log('📊', `Created: ${result.createdAt}`);
+        if (result.completedAt) log('📊', `Completed: ${result.completedAt}`);
+        if (result.reportUrl) log('🧾', `Report: ${result.reportUrl}`);
+
+        if (result.classifications?.length > 0) {
+            displayResults(result);
+        }
+        return result;
+    } catch (e) {
+        log('❌', `Job fetch failed: ${e.message}`);
+        return null;
+    }
+}
+
+// --- Events: Retrieve Classification Events for a Job ----------------------------
+
+async function getJobEvents(jobId) {
+    logSection(`Events: ${jobId}`);
+    const endpoint = `${API_BASE_URL}/v1/jobs/${jobId}/events`;
+    log('📡', `GET ${endpoint}`);
+
+    try {
+        const response = await fetch(endpoint, {
+            method: 'GET',
+            headers: buildAuthHeaders(),
+            signal: AbortSignal.timeout(15000),
+        });
+
+        const result = await response.json();
+        if (!response.ok) {
+            log('❌', `Events fetch failed (${response.status}): ${result.error || response.statusText}`);
+            return null;
+        }
+
+        const events = result.events || result.classifications || [];
+        log('📊', `Events: ${events.length}`);
+        events.slice(0, 20).forEach((evt, i) => {
+            const t = evt.startTime != null ? `${evt.startTime.toFixed(1)}s` : '?';
+            const conf = evt.confidence != null ? `${(evt.confidence * 100).toFixed(0)}%` : '?';
+            const cls = evt.class || evt.className || evt.label || '?';
+            const cat = evt.category ? ` [${evt.category}]` : '';
+            log('  ', `  ${i + 1}. [${t}] ${cls} (${conf})${cat}`);
+        });
+        if (events.length > 20) {
+            log('  ', `  ... and ${events.length - 20} more`);
+        }
+        return result;
+    } catch (e) {
+        log('❌', `Events fetch failed: ${e.message}`);
+        return null;
+    }
+}
+
+// --- Poll: Wait for Job Completion -----------------------------------------------
+
+async function pollJobResult(jobId) {
+    logSection(`Polling Job: ${jobId}`);
+    const endpoint = `${API_BASE_URL}/v1/jobs/${jobId}`;
+    const startMs = Date.now();
+    const timeoutMs = 5 * 60 * 1000; // 5 minutes
+    let attempts = 0;
+
+    while (Date.now() - startMs < timeoutMs) {
+        const interval = attempts >= 20 ? 10000 : attempts >= 10 ? 5000 : 3000;
+        await new Promise(resolve => setTimeout(resolve, interval));
+        attempts++;
+
+        const elapsedSec = ((Date.now() - startMs) / 1000).toFixed(0);
+        process.stdout.write(`\r  ⏱️ Polling... ${elapsedSec}s (attempt ${attempts})`);
+
+        try {
+            const response = await fetch(endpoint, {
+                method: 'GET',
+                headers: buildAuthHeaders(),
+                signal: AbortSignal.timeout(10000),
+            });
+
+            if (response.status === 429) {
+                const retryAfter = response.headers.get('Retry-After');
+                const delayMs = retryAfter ? parseInt(retryAfter, 10) * 1000 : 5000;
+                await new Promise(resolve => setTimeout(resolve, delayMs));
+                continue;
+            }
+
+            if (response.status === 404) continue; // eventual consistency
+
+            const result = await response.json();
+
+            if (result.status === 'completed' || (result.classifications && result.classifications.length > 0)) {
+                process.stdout.write('\r');
+                log('✅', `Job completed in ${elapsedSec}s`);
+                displayResults(result);
+                return result;
+            }
+
+            if (result.status === 'failed') {
+                process.stdout.write('\r');
+                log('❌', `Job failed: ${result.error || 'unknown'}`);
+                return result;
+            }
+        } catch (e) {
+            if (e.status === 404) continue;
+            // transient errors — keep polling
+        }
+    }
+
+    process.stdout.write('\r');
+    log('❌', `Poll timeout — job ${jobId} did not complete within 5 minutes`);
+    return null;
+}
+
+// --- Upload: Send Audio to Enterprise API (multipart/form-data) ------------------
+
+async function uploadAudio(audioFile) {
+    logSection('Uploading to Enterprise API');
 
     const endpoint = `${API_BASE_URL}/v1/classify`;
-    log('📤', `POST ${endpoint}`);
-    log('🔐', `API Key: ${API_KEY.substring(0, 8)}...`);
+    log('📤', `POST ${endpoint} (multipart)`);
 
     const audioBuffer = readFileSync(audioFile);
-    const base64Audio = audioBuffer.toString('base64');
     const fileName = audioFile.split(/[\\/]/).pop();
     const sizeMB = (audioBuffer.length / 1024 / 1024).toFixed(2);
 
-    log('📊', `Payload: ${fileName} (${sizeMB} MB -> ${(base64Audio.length / 1024 / 1024).toFixed(2)} MB base64)`);
+    log('📊', `Payload: ${fileName} (${sizeMB} MB)`);
 
-    // --await: sync mode (no callbackUrl) — API polls internally, returns full results
-    // default: async mode (callbackUrl) — returns 202 immediately, fire-and-forget
-    const callbackUrl = awaitResults ? undefined : 'https://localhost:9999/demo-webhook';
-    const timeoutMs = awaitResults ? 6 * 60 * 1000 : 30000; // 6min sync vs 30s async
+    const { latitude, longitude } = randomGpsWithin10km(-35.2802, 149.1310);
 
-    if (awaitResults) {
-        log('⏱️', 'Sync mode — waiting for classification results...');
+    const formData = new FormData();
+    formData.append('audio', new Blob([audioBuffer]), fileName);
+    formData.append('latitude', String(latitude));
+    formData.append('longitude', String(longitude));
+
+    // Build auth headers without Content-Type (fetch sets boundary automatically for FormData)
+    const headers = {};
+    if (BEARER_TOKEN) {
+        headers['Authorization'] = `Bearer ${BEARER_TOKEN}`;
+    } else if (API_KEY) {
+        headers['X-NCM-Api-Key'] = API_KEY;
     }
 
     try {
-        const payload = {
-            base64: base64Audio,
-            fileName,
-            // GPS: randomised within 10km of a centre point
-            ...randomGpsWithin10km(-35.2802, 149.1310),
-        };
-        if (callbackUrl) payload.callbackUrl = callbackUrl;
-
         const response = await fetch(endpoint, {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-Api-Key': API_KEY,
-            },
-            body: JSON.stringify(payload),
-            signal: AbortSignal.timeout(timeoutMs),
+            headers,
+            body: formData,
+            signal: AbortSignal.timeout(60000),
         });
 
         const result = await response.json();
 
         if (!response.ok && response.status !== 202) {
             log('❌', `API returned ${response.status}: ${result.error || result.message}`);
-            if (result.code === 'INVALID_API_KEY') {
-                log('🔍', 'Check your --key value — key must exist in target environment');
-            }
-            if (result.code === 'MISSING_API_KEY') {
-                log('🔍', 'API key header not received — check endpoint URL');
-            }
             return null;
         }
 
@@ -393,29 +652,23 @@ async function uploadAudio(audioFile, { awaitResults = false } = {}) {
         log('📊', `Status: ${result.status || 'N/A'}`);
         log('🔗', `Poll URL: ${result.pollUrl || 'N/A'}`);
 
-        if (response.status === 202) {
-            log('📡', `Async mode — job queued for processor`);
-        }
-
-        // Display full results (sync mode returns classifications + events)
-        if (response.status === 200) {
-            displayResults(result);
-        }
-
         return result;
     } catch (e) {
         log('❌', `Upload failed: ${e.message}`);
-        if (e.message.includes('ECONNREFUSED')) {
-            log('🔍', 'Is the API running? Check your API_URL_LOCAL or target environment');
-        }
         return null;
     }
 }
+
 
 // --- Main ------------------------------------------------------------------------
 
 async function main() {
     const args = parseArgs();
+
+    // CLI overrides for camera config
+    if (args.cameraIp)   CAMERA.host = args.cameraIp;
+    if (args.cameraUser) CAMERA.user = args.cameraUser;
+    if (args.cameraPass) CAMERA.pass = args.cameraPass;
 
     console.log('\n  TP-Link Tapo C100 Edge Audio Acquisition Demo');
     console.log('  ══════════════════════════════════════════════');
@@ -428,55 +681,127 @@ async function main() {
     node packages/demo/demos/webcam.mjs --probe                                    Probe camera
     node packages/demo/demos/webcam.mjs --capture --duration 10                    Capture 10s audio
     node packages/demo/demos/webcam.mjs --full --key <api-key>                     Capture + upload (fire-and-forget)
-    node packages/demo/demos/webcam.mjs --full --key <key> --await                 Capture + upload + show AI results
+    node packages/demo/demos/webcam.mjs --full --key <key> --poll                  Capture + upload + poll for results
     node packages/demo/demos/webcam.mjs --full --key <key> --gather                Capture all, then upload all
-    node packages/demo/demos/webcam.mjs --env dev --full --key <api-key>           Full pipeline against dev
+    node packages/demo/demos/webcam.mjs --full --oauth                             OAuth (auto M2M token)
+    node packages/demo/demos/webcam.mjs --env prod --full --oauth                  Full pipeline against prod
+    node packages/demo/demos/webcam.mjs --health --env dev                         API health check
+    node packages/demo/demos/webcam.mjs --classes                                  List sound classes
+    node packages/demo/demos/webcam.mjs --usage --key <key>                        Show API usage/quota
+    node packages/demo/demos/webcam.mjs --job <id> --key <key>                     Retrieve job results
+    node packages/demo/demos/webcam.mjs --events <id> --key <key>                  Retrieve job events
 
   Options:
-    --env <env>        Target environment: local, dev, staging, prod (default: local)
-    --probe            Test camera RTSP connectivity
-    --capture          Capture audio from camera
-    --upload           Upload captured audio to Enterprise API
-    --key <api-key>    Enterprise API key (REQUIRED for upload)
-    --full             capture + upload (end-to-end)
-    --duration <sec>   Capture duration per job in seconds (default: 30)
-    --jobs <n>         Number of jobs to send (default: 3)
-    --interval <sec>   Seconds between jobs (default: 20)
-    --await            Wait for AI results (sync mode) instead of fire-and-forget
-    --gather           Capture all files first, then upload all (batch pattern)
+    --env <env>            Target environment: local, dev, staging, prod (default: local)
+    --probe                Test camera RTSP connectivity
+    --capture              Capture audio from camera
+    --upload               Upload captured audio to Enterprise API
+    --full                 capture + upload (end-to-end)
+    --key <api-key>        Enterprise API key (X-NCM-Api-Key header)
+    --oauth                OAuth (auto M2M token via Key Vault + Auth0)
+    --duration <sec>       Capture duration per job in seconds (default: 30)
+    --jobs <n>             Number of jobs to send (default: 3)
+    --interval <sec>       Seconds between jobs (default: 20)
+    --poll                 Poll /v1/jobs/{id} for results after async submit
+    --await                Alias for --poll (backward compat)
+    --gather               Capture all files first, then upload all (batch pattern)
+    --health               Check API health (/v1/health) before pipeline
+    --usage                Show API usage/quota (/v1/usage) after pipeline
+    --classes              List available sound classes (/v1/classes) and exit
+    --job <jobId>          Retrieve results for an existing job and exit
+    --events <jobId>       Retrieve classification events for a job and exit
+    --camera-ip <ip>       Camera IP address (default: 192.168.0.100 / CAMERA_HOST)
+    --camera-user <user>   Camera RTSP username (default: admin / CAMERA_USER)
+    --camera-pass <pass>   Camera RTSP password (default: changeme / CAMERA_PASS)
 
   Camera:  ${CAMERA.name} — rtsp://${CAMERA.user}:****@${CAMERA.host}/stream1
   Output:  output/demo-webcam/
 
   Environment variables:
-    CAMERA_HOST          Camera IP address (default: 192.168.0.100)
-    CAMERA_USER          Camera RTSP username (default: admin)
-    CAMERA_PASS          Camera RTSP password (default: changeme)
-    API_URL_LOCAL        Local API URL (default: http://localhost:7071/api)
-    API_URL_DEV          Dev API URL
-    API_URL_STAGING      Staging API URL
-    API_URL_PROD         Production API URL
+    CAMERA_HOST            Camera IP address (default: 192.168.0.100)
+    CAMERA_USER            Camera RTSP username (default: admin)
+    CAMERA_PASS            Camera RTSP password (default: changeme)
+    HEAR_API_KEY           Enterprise API key
+    ENTERPRISE_API_KEY     Enterprise API key (legacy, prefer HEAR_API_KEY)
+    API_URL_LOCAL          Local API URL (default: http://localhost:7071/api)
+    API_URL_DEV            Dev API URL
+    API_URL_STAGING        Staging API URL
+    API_URL_PROD           Production API URL
 `);
         process.exit(0);
     }
 
-    // Prerequisites — resolve ffmpeg (winget PATH not always in Git Bash)
-    logSection('Prerequisites');
-    const resolved = resolveFFmpeg();
-    if (!resolved.ffmpeg || !resolved.ffprobe) {
-        log('❌', `ffmpeg: ${resolved.ffmpeg || 'NOT FOUND'}`);
-        log('❌', `ffprobe: ${resolved.ffprobe || 'NOT FOUND'}`);
-        log('🔍', 'Install ffmpeg: winget install Gyan.FFmpeg');
-        process.exit(1);
-    }
-    FFMPEG = resolved.ffmpeg;
-    FFPROBE = resolved.ffprobe;
-    log('✅', `ffmpeg: ${FFMPEG}`);
-    log('✅', `ffprobe: ${FFPROBE}`);
-
     // Resolve API environment
     const { apiUrl } = resolveEnvironment(args.env);
     API_BASE_URL = apiUrl;
+
+    // Auth — OAuth (auto M2M) or API key
+    if (args.oauth) {
+        log('🔐', `Acquiring OAuth token for ${args.env}...`);
+        try {
+            BEARER_TOKEN = await acquireOAuthToken(args.env);
+            log('✅', 'OAuth token acquired');
+        } catch (e) {
+            log('❌', `OAuth failed: ${e.message}`);
+            process.exit(1);
+        }
+    } else {
+        API_KEY = args.key || process.env.HEAR_API_KEY || process.env.ENTERPRISE_API_KEY || '';
+        if (API_KEY) {
+            log('🔐', `Auth: API key (${API_KEY.substring(0, 8)}...)`);
+        }
+    }
+
+    // --- Standalone modes (run and exit) ------------------------------------------
+
+    // --classes: list sound classes and exit (no auth required)
+    if (args.classes) {
+        await listClasses();
+        process.exit(0);
+    }
+
+    // --job: retrieve a specific job and exit
+    if (args.job) {
+        if (!API_KEY && !BEARER_TOKEN) {
+            log('❌', 'Authentication required. Use --key or --oauth');
+            process.exit(1);
+        }
+        await getJob(args.job);
+        process.exit(0);
+    }
+
+    // --events: retrieve classification events for a job and exit
+    if (args.events) {
+        if (!API_KEY && !BEARER_TOKEN) {
+            log('❌', 'Authentication required. Use --key or --oauth');
+            process.exit(1);
+        }
+        await getJobEvents(args.events);
+        process.exit(0);
+    }
+
+    // --- Pipeline modes ----------------------------------------------------------
+
+    // --health: check API health before pipeline
+    if (args.health) {
+        await checkHealth();
+    }
+
+    // Prerequisites — resolve ffmpeg (winget PATH not always in Git Bash)
+    if (args.probe || args.capture) {
+        logSection('Prerequisites');
+        const resolved = resolveFFmpeg();
+        if (!resolved.ffmpeg || !resolved.ffprobe) {
+            log('❌', `ffmpeg: ${resolved.ffmpeg || 'NOT FOUND'}`);
+            log('❌', `ffprobe: ${resolved.ffprobe || 'NOT FOUND'}`);
+            log('🔍', 'Install ffmpeg: winget install Gyan.FFmpeg');
+            process.exit(1);
+        }
+        FFMPEG = resolved.ffmpeg;
+        FFPROBE = resolved.ffprobe;
+        log('✅', `ffmpeg: ${FFMPEG}`);
+        log('✅', `ffprobe: ${FFPROBE}`);
+    }
 
     // Probe camera
     if (args.probe || args.capture) {
@@ -490,10 +815,23 @@ async function main() {
         }
     }
 
-    // API key — mandatory for upload
-    API_KEY = args.key || process.env.ENTERPRISE_API_KEY || '';
-    if (args.upload && !API_KEY) {
-        log('❌', 'Enterprise API key required for upload. Use --key <api-key> or set ENTERPRISE_API_KEY');
+    // --usage standalone (no capture/upload) — show usage and exit
+    if (args.usage && !args.capture && !args.upload) {
+        if (!API_KEY && !BEARER_TOKEN) {
+            log('❌', '--usage requires authentication. Use --oauth or --key');
+            process.exit(1);
+        }
+        await showUsage();
+        process.exit(0);
+    }
+
+    // --health only (no capture/upload) — exit after health check
+    if (args.health && !args.capture && !args.upload) {
+        process.exit(0);
+    }
+
+    if (args.upload && !API_KEY && !BEARER_TOKEN) {
+        log('❌', 'Authentication required for upload. Use --key <api-key> or --oauth');
         process.exit(1);
     }
 
@@ -504,6 +842,7 @@ async function main() {
     }
     const totalJobs = args.full ? args.jobs : 1;
     const results = [];
+
 
     if (args.gather && args.capture && args.upload) {
         // --gather mode: capture all files first, then upload all
@@ -526,7 +865,7 @@ async function main() {
         logSection(`Uploading ${audioFiles.length} file(s)`);
         for (let i = 0; i < audioFiles.length; i++) {
             if (audioFiles.length > 1) log('📤', `Upload ${i + 1}/${audioFiles.length}`);
-            const result = await uploadAudio(audioFiles[i], { awaitResults: args.await_ });
+            const result = await uploadAudio(audioFiles[i]);
             if (result) {
                 results.push(result);
             } else {
@@ -557,11 +896,11 @@ async function main() {
 
             // Upload to Enterprise API
             if (args.upload && audioFile) {
-                if (!API_KEY) {
-                    log('❌', 'No API key available. Use --key or set ENTERPRISE_API_KEY');
+                if (!API_KEY && !BEARER_TOKEN) {
+                    log('❌', 'No authentication available. Use --key or --oauth');
                     process.exit(1);
                 }
-                const result = await uploadAudio(audioFile, { awaitResults: args.await_ });
+                const result = await uploadAudio(audioFile);
                 if (result) {
                     results.push(result);
                 } else {
@@ -575,11 +914,30 @@ async function main() {
         }
     }
 
+    // --poll: poll each submitted job to completion
+    if (args.poll && results.length > 0) {
+        logSection('Polling for Results');
+        for (const r of results) {
+            if (r.requestId) {
+                await pollJobResult(r.requestId);
+            }
+        }
+    }
+
+    // --usage: show API usage after pipeline
+    if (args.usage) {
+        if (!API_KEY && !BEARER_TOKEN) {
+            log('⚠️', '--usage requires authentication. Use --key or --oauth');
+        } else {
+            await showUsage();
+        }
+    }
+
     logSection('Done');
     if (results.length > 0) {
-        const mode = args.await_ ? 'classified' : 'accepted';
+        const mode = args.poll ? 'classified' : 'accepted';
         log('📊', `${results.length}/${totalJobs} jobs ${mode}`);
-        if (args.await_ && results.some(r => r.classifications?.length > 0)) {
+        if (args.poll && results.some(r => r.classifications?.length > 0)) {
             const totalEvents = results.reduce((sum, r) => sum + (r.eventCount || 0), 0);
             log('🤖', `Total events detected: ${totalEvents}`);
         }
