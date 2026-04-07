@@ -111,10 +111,15 @@ node packages/demo/demos/openclaw.mjs --key <key> --all
   | Dog bark | 72% | Animal |
 ```
 
+## Related Demos
+
+- [`openclaw-listen.md`](openclaw-listen.md) — Local audio monitoring: OpenClaw + RTSP camera + h-ear classification via Ollama.
+
 ## Architecture References
 
 - ARCH-010: MCP / OpenClaw integration
 - ARCH-012: Observer/Operator pattern (env resolution)
 - `packages/openclaw/` — skill package source
+- `packages/openclaw/src/cli.ts` — h-ear CLI (bin entry)
 - `packages/core/` — shared API client
 - `Badajoz95/h-ear-openclaw` — ClawHub publish repo

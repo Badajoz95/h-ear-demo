@@ -427,7 +427,7 @@ async function main() {
     console.log('  ══════════════════════════');
 
     const useFile = !!args.file;
-    log(useFile ? '📁' : '🔗', `Audio: ${useFile ? args.file : args.url}`);
+    log(useFile ? '🧾' : '🔗', `Audio: ${useFile ? args.file : args.url}`);
     log('🎯', `Webhook 1: ${args.tierValues1} (tier depth ${args.tierDepth1})`);
     log('🎯', `Webhook 2: ${args.tierValues2} (tier depth ${args.tierDepth2})`);
     log('🌐', `Target env: ${args.env}`);
@@ -624,7 +624,7 @@ async function main() {
     for (const wh of registeredWebhooks) {
         const payload = receivedAlerts[wh.path];
         if (payload && payload.event === 'job.completed') {
-            const emoji = wh.path === '/respiratory' ? '🫁' : '🔊';
+            const emoji = wh.path === '/respiratory' ? '🔬' : '📡';
             log('🚨', `${wh.label} — server fired this webhook`);
             renderAlertBox(emoji, wh.label.toUpperCase(), payload);
             log('📡', `In production: trigger SMS/email/PagerDuty/Home Assistant`);

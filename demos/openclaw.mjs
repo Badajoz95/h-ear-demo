@@ -17,7 +17,7 @@
  */
 
 import { dirname, join } from 'path';
-import { fileURLToPath } from 'url';
+import { fileURLToPath, pathToFileURL } from 'url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = join(__dirname, '..', '..', '..');
@@ -91,13 +91,14 @@ async function main() {
     process.env.HEAR_API_KEY = opts.key;
     process.env.HEAR_ENV = opts.env;
 
-    // Dynamic import after env is set
-    const { createSkill } = await import(join(PROJECT_ROOT, 'packages', 'openclaw', 'src', 'index.ts'));
-    const { healthCommand } = await import(join(PROJECT_ROOT, 'packages', 'openclaw', 'src', 'commands', 'health.ts'));
-    const { soundsCommand } = await import(join(PROJECT_ROOT, 'packages', 'openclaw', 'src', 'commands', 'sounds.ts'));
-    const { usageCommand } = await import(join(PROJECT_ROOT, 'packages', 'openclaw', 'src', 'commands', 'usage.ts'));
-    const { jobsCommand } = await import(join(PROJECT_ROOT, 'packages', 'openclaw', 'src', 'commands', 'jobs.ts'));
-    const { classifyCommand } = await import(join(PROJECT_ROOT, 'packages', 'openclaw', 'src', 'commands', 'classify.ts'));
+    // Dynamic import after env is set (pathToFileURL needed on Windows)
+    const toUrl = (p) => pathToFileURL(p).href;
+    const { createSkill } = await import(toUrl(join(PROJECT_ROOT, 'packages', 'openclaw', 'src', 'index.ts')));
+    const { healthCommand } = await import(toUrl(join(PROJECT_ROOT, 'packages', 'openclaw', 'src', 'commands', 'health.ts')));
+    const { soundsCommand } = await import(toUrl(join(PROJECT_ROOT, 'packages', 'openclaw', 'src', 'commands', 'sounds.ts')));
+    const { usageCommand } = await import(toUrl(join(PROJECT_ROOT, 'packages', 'openclaw', 'src', 'commands', 'usage.ts')));
+    const { jobsCommand } = await import(toUrl(join(PROJECT_ROOT, 'packages', 'openclaw', 'src', 'commands', 'jobs.ts')));
+    const { classifyCommand } = await import(toUrl(join(PROJECT_ROOT, 'packages', 'openclaw', 'src', 'commands', 'classify.ts')));
 
     const { client, config } = createSkill();
 
