@@ -11,9 +11,6 @@ node packages/demo/demos/openclaw.mjs --key <api-key>
 # Full demo including audio classification
 node packages/demo/demos/openclaw.mjs --key <key> --classify https://example.com/audio.mp3
 
-# Against dev environment
-node packages/demo/demos/openclaw.mjs --env dev --key <key>
-
 # Show all available commands
 node packages/demo/demos/openclaw.mjs --key <key> --all
 ```

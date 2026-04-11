@@ -9,7 +9,7 @@
  * Usage:
  *   node packages/demo/demos/openclaw.mjs --key <api-key>
  *   node packages/demo/demos/openclaw.mjs --key <key> --classify https://example.com/audio.mp3
- *   node packages/demo/demos/openclaw.mjs --env dev --key <key> --all
+ *   node packages/demo/demos/openclaw.mjs --key <key> --all
  *
  * Prerequisites:
  *   - Enterprise API key (HEAR_API_KEY or --key)
@@ -57,7 +57,7 @@ function parseArgs() {
   Usage:
     node packages/demo/demos/openclaw.mjs --key <api-key>
     node packages/demo/demos/openclaw.mjs --key <key> --classify <url>
-    node packages/demo/demos/openclaw.mjs --env dev --key <key> --all
+    node packages/demo/demos/openclaw.mjs s--key <key> --all
 
   Options:
     --key <key>         API key (or set HEAR_API_KEY)

@@ -226,14 +226,36 @@ This captures audio from the RTSP camera, classifies it, and returns detected so
 | `h-ear usage` | API usage stats |
 | `h-ear jobs --limit <n>` | Recent classification jobs |
 
-## Troubleshooting
+## 12. Scheduled Monitoring (Cron)
 
-| Issue | Fix |
-|-------|-----|
-| Gateway won't start | Check Ollama is running (`curl localhost:11434`) |
-| h-ear not found | Run `npm link` in `packages/openclaw` |
-| Capture timeout | Increase `tools.exec.timeoutSec` to 180+ |
-| Model ignores h-ear | Add commands to `TOOLS.md` (always injected) |
-| Phone can't connect | Check Windows Firewall rule for port 18789 |
-| NAT hairpin fails | Use mobile data (not Wi-Fi) for external QR |
-| Skills not in prompt | Use TOOLS.md instead of relying on skill injection |
+Create a recurring capture job that runs every 5 minutes:
+
+```bash
+openclaw cron add \
+  --name "h-ear-monitor" \
+  --every 300s \
+  --message "run h-ear capture --duration 30 and tell me what sounds you detected" \
+  --announce \
+  --timeout-seconds 180 \
+  --tools exec
+```
+
+Manage the job:
+
+```bash
+# Check status
+openclaw cron list
+
+# View run history
+openclaw cron runs <job-id>
+
+# Test run now
+openclaw cron run <job-id>
+
+# Pause / resume / delete
+openclaw cron disable <job-id>
+openclaw cron enable <job-id>
+openclaw cron rm <job-id>
+```
+
+To deliver results to Discord, add `--channel discord --to <channel-id>` when creating the job.
