@@ -140,10 +140,7 @@ Actual shape sent by the processor:
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `HEAR_API_KEY` | | Enterprise API key (management commands only) |
-| `API_URL_LOCAL` | `http://localhost:7071/api` | Local API URL |
-| `API_URL_DEV` | | Dev API URL |
-| `API_URL_STAGING` | | Staging API URL |
-| `API_URL_PROD` | | Production API URL |
+| `API_URL_PROD` | `https://api.h-ear.world/api` | Production API URL |
 | `TLS_CERT_PATH` | `.certs/demo-cert.pem` | TLS cert for local Docker mode |
 | `TLS_KEY_PATH` | `.certs/demo-cert-key.pem` | TLS key for local Docker mode |
 

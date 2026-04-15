@@ -131,10 +131,7 @@ Query API endpoints directly without capturing audio. Useful for inspecting avai
 | `CAMERA_PASS` | `changeme` | Camera RTSP password |
 | `HEAR_API_KEY` | | Enterprise API key |
 | `ENTERPRISE_API_KEY` | | Enterprise API key (legacy) |
-| `API_URL_LOCAL` | `http://localhost:7071/api` | Local API URL |
-| `API_URL_DEV` | | Dev API URL |
-| `API_URL_STAGING` | | Staging API URL |
-| `API_URL_PROD` | | Production API URL |
+| `API_URL_PROD` | `https://api.h-ear.world/api` | Production API URL |
 
 ## Prerequisites
 
