@@ -4,7 +4,7 @@
  *
  * Captures audio from a Wi-Fi camera's RTSP stream and uploads
  * via the Enterprise API (v1/classify). Supports multiple environments.
- * Auth: --oauth (auto M2M token via Key Vault + Auth0) or --key <api-key>
+ * Auth: --oauth (OAuth 2.1 + PKCE via Auth0, browser login) or --key <api-key>
  *
  * Usage:
  *   node packages/demo/demos/webcam.mjs --probe                          # Probe camera (local API)

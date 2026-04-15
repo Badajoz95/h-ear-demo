@@ -20,10 +20,10 @@ node demos/openclaw.mjs --key <api-key>
 node demos/webcam.mjs --full --key <api-key>
 
 # Notification alert — URL mode (default, uses prod demo audio)
-node demos/webhook.mjs --key <api-key>
+node demos/webhook.mjs --oauth --callback-host <ngrok-host>
 
 # Or with local bundled file
-node demos/webhook.mjs --key <api-key> --file demos/demo-60s.mp3
+node demos/webhook.mjs --oauth --callback-host <ngrok-host> --file demos/demo-60s.mp3
 ```
 
 Each demo has a companion `.md` doc with full usage, options, and architecture diagrams.
@@ -31,8 +31,8 @@ Each demo has a companion `.md` doc with full usage, options, and architecture d
 ## Prerequisites
 
 - Node.js >= 18
-- Enterprise API key ([h-ear.world](https://h-ear.world))
-- Demo-specific: see individual docs (ffmpeg for webcam, mkcert for webhook)
+- Enterprise API key ([h-ear.world](https://h-ear.world)) or OAuth via `--oauth` (browser login)
+- Demo-specific: see individual docs (ffmpeg for webcam, ngrok + OAuth for webhook)
 
 ## Related
 

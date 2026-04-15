@@ -8,10 +8,10 @@ Captures audio from a Wi-Fi camera's RTSP stream and uploads to the classificati
 
 | Method | Flag | How It Works |
 |--------|------|-------------|
-| OAuth | `--oauth` | Auto-acquires M2M token via Key Vault + Auth0 (zero touch) |
+| OAuth | `--oauth` | OAuth 2.1 Authorization Code + PKCE via Auth0 (browser login, then cached) |
 | API Key | `--key <key>` | Enterprise API key (`X-NCM-Api-Key` header) |
 
-OAuth uses `DefaultAzureCredential` — works if you're logged in via VS Code, `az login`, or Managed Identity. No manual token handling.
+OAuth opens a browser for Auth0 login on first run. Token is cached at `~/.h-ear/token-{env}.json` and silently refreshed on subsequent runs (zero touch).
 
 ## Usage
 
@@ -69,7 +69,7 @@ node packages/demo/demos/webcam.mjs --events <jobId> --key <key>
 | `--upload` | | Upload captured audio |
 | `--full` | | capture + upload (end-to-end) |
 | `--key <key>` | | Enterprise API key (`X-NCM-Api-Key` header) |
-| `--oauth` | | OAuth (auto M2M token via Key Vault + Auth0) |
+| `--oauth` | | OAuth 2.1 + PKCE via Auth0 (browser login, cached) |
 | `--duration <s>` | `30` | Capture duration per job in seconds |
 | `--jobs <n>` | `3` | Number of jobs to send |
 | `--interval <s>` | `20` | Seconds between jobs |
@@ -140,4 +140,4 @@ Query API endpoints directly without capturing audio. Useful for inspecting avai
 
 - ffmpeg + ffprobe in PATH
 - Camera RTSP enabled (Tapo app -> Advanced Settings -> Camera Account)
-- `--oauth` (logged in via VS Code / `az login`) or `--key <api-key>` for the target environment
+- `--oauth` (browser login via Auth0, cached after first run) or `--key <api-key>` for the target environment

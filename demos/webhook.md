@@ -13,7 +13,7 @@ OAuth is required — persistent webhooks need an auth token.
 
 | Method | Flag | How It Works |
 |--------|------|-------------|
-| OAuth | `--oauth` | Auto-acquires M2M token via Key Vault + Auth0 (zero touch) |
+| OAuth | `--oauth` | OAuth 2.1 Authorization Code + PKCE via Auth0 (browser login, cached) |
 
 ## Usage
 
@@ -149,6 +149,6 @@ Actual shape sent by the processor:
 
 ## Prerequisites
 
-- OAuth — `az login` or VS Code Azure account
+- OAuth — browser login via Auth0 (cached at `~/.h-ear/token-{env}.json` after first run)
 - ngrok on port 9876 for cloud envs (`ngrok http 9876`), or `--env local` for Docker stack
 - TLS cert at `.certs/demo-cert.pem` for local Docker mode (bundled dev cert covers `localhost` + `host.docker.internal`)
