@@ -42,15 +42,15 @@ const VALID_ENVS = ['local', 'dev', 'staging', 'prod'];
 
 // --- API Environment Configuration -----------------------------------------------
 const API_URLS = {
-    local:   process.env.API_URL_LOCAL   || 'http://localhost:7071/api',
-    dev:     process.env.API_URL_DEV     || '',
+    local: process.env.API_URL_LOCAL || 'http://localhost:7071/api',
+    dev: process.env.API_URL_DEV || '',
     staging: process.env.API_URL_STAGING || '',
-    prod:    process.env.API_URL_PROD    || '',
+    prod: process.env.API_URL_PROD || '',
 };
 
 // --- TLS Certificate Paths (local Docker mode only) ------------------------------
 const TLS_CERT = process.env.TLS_CERT_PATH || join(__dirname, '..', '..', '..', '.certs', 'demo-cert.pem');
-const TLS_KEY  = process.env.TLS_KEY_PATH  || join(__dirname, '..', '..', '..', '.certs', 'demo-cert-key.pem');
+const TLS_KEY = process.env.TLS_KEY_PATH || join(__dirname, '..', '..', '..', '.certs', 'demo-cert-key.pem');
 
 // --- State -----------------------------------------------------------------------
 
@@ -98,30 +98,30 @@ function parseArgs() {
     const filterMinDuration = get('--filterMinDuration');
     return {
         env,
-        key:          get('--key'),
-        oauth:        args.includes('--oauth'),
+        key: get('--key'),
+        oauth: args.includes('--oauth'),
         // Audio source — --file takes precedence over --url
-        file:         get('--file'),
-        url:          get('--url') || DEFAULT_AUDIO_URL,
+        file: get('--file'),
+        url: get('--url') || DEFAULT_AUDIO_URL,
         // Webhook options
         callbackHost: get('--callback-host'),
-        port:         parseInt(get('--port') || String(WEBHOOK_PORT), 10),
-        timeout:      parseInt(get('--timeout') || '300', 10),
+        port: parseInt(get('--port') || String(WEBHOOK_PORT), 10),
+        timeout: parseInt(get('--timeout') || '300', 10),
         filterMinDuration: filterMinDuration ? parseFloat(filterMinDuration) : undefined,
         // Webhook 1 — Respiratory sounds
-        tierValues1:  get('--tier-values1') || 'Respiratory sounds',
-        tierDepth1:   parseInt(get('--tier-depth1') || '2'),
+        tierValues1: get('--tier-values1') || 'Respiratory sounds',
+        tierDepth1: parseInt(get('--tier-depth1') || '2'),
         // Webhook 2 — Sounds of things
-        tierValues2:  get('--tier-values2') || 'Sounds of things',
-        tierDepth2:   parseInt(get('--tier-depth2') || '1'),
+        tierValues2: get('--tier-values2') || 'Sounds of things',
+        tierDepth2: parseInt(get('--tier-depth2') || '1'),
         // Management commands
-        deregister:   get('--deregister'),
+        deregister: get('--deregister'),
         listWebhooks: args.includes('--list-webhooks'),
-        ping:         get('--ping'),
-        deliveries:   get('--deliveries'),
-        events:       get('--events') || 'job.completed,job.failed',
-        health:       args.includes('--health'),
-        help:         args.includes('--help') || args.includes('-h') || args.length === 0,
+        ping: get('--ping'),
+        deliveries: get('--deliveries'),
+        events: get('--events') || 'job.completed,job.failed',
+        health: args.includes('--health'),
+        help: args.includes('--help') || args.includes('-h') || args.length === 0,
     };
 }
 
@@ -161,7 +161,7 @@ function handleWebhookRequest(req, res, path) {
                     log('🤖', `Classifications (${payload.classifications.length}):`);
                     payload.classifications.slice(0, 10).forEach((c, i) => {
                         const conf = c.confidence != null ? `${(c.confidence * 100).toFixed(0)}%` : '?';
-                        const cat  = c.category ? ` [${c.category}]` : '';
+                        const cat = c.category ? ` [${c.category}]` : '';
                         log('  ', `  ${i + 1}. ${c.class} (${conf})${cat}`);
                     });
                 }
@@ -325,6 +325,17 @@ async function pingWebhook(webhookId) {
     } catch (e) { log('❌', `Ping failed: ${e.message}`); }
 }
 
+// --- GPS -------------------------------------------------------------------------
+
+/** Randomise GPS within radiusKm of a centre point (default 10km, Canberra) */
+function randomGpsWithin10km(centreLat = -35.2802, centreLng = 149.1310, radiusKm = 10) {
+    const r = radiusKm * Math.sqrt(Math.random());
+    const theta = Math.random() * 2 * Math.PI;
+    const dLat = (r * Math.cos(theta)) / 111.32;
+    const dLng = (r * Math.sin(theta)) / (111.32 * Math.cos(centreLat * Math.PI / 180));
+    return { latitude: +(centreLat + dLat).toFixed(6), longitude: +(centreLng + dLng).toFixed(6) };
+}
+
 // --- Submit Audio ----------------------------------------------------------------
 
 async function submitAudioUrl(audioUrl, args = {}) {
@@ -333,8 +344,13 @@ async function submitAudioUrl(audioUrl, args = {}) {
     log('🔗', `URL: ${audioUrl}`);
     if (args.filterMinDuration) log('🔍', `Duration filter: >= ${args.filterMinDuration}s`);
 
+    const { latitude, longitude } = randomGpsWithin10km();
+    log('📎', `GPS: ${latitude}, ${longitude}`);
+
     const payload = {
         url: audioUrl,
+        latitude,
+        longitude,
         ...(args.filterMinDuration && { filterMinDurationSeconds: args.filterMinDuration }),
     };
 
@@ -359,16 +375,21 @@ async function submitAudioUrl(audioUrl, args = {}) {
 async function submitAudio(audioFile, args = {}) {
     logSection('Uploading Audio to Enterprise API');
     const audioBuffer = readFileSync(audioFile);
-    const fileName    = basename(audioFile);
-    const sizeMB      = (audioBuffer.length / 1024 / 1024).toFixed(2);
+    const fileName = basename(audioFile);
+    const sizeMB = (audioBuffer.length / 1024 / 1024).toFixed(2);
     log('📤', `POST ${API_BASE_URL}/v1/classify (multipart)`);
     log('📥', `File: ${fileName} (${sizeMB} MB)`);
     if (args.filterMinDuration) log('🔍', `Duration filter: >= ${args.filterMinDuration}s`);
+
+    const { latitude, longitude } = randomGpsWithin10km();
+    log('🔍', `GPS: ${latitude}, ${longitude}`);
 
     const formData = new FormData();
     formData.append('audio', new Blob([audioBuffer]), fileName);
     // multipart endpoint requires callbackUrl — use noop if not provided
     formData.append('callbackUrl', 'https://mcp.h-ear.world/noop');
+    formData.append('latitude', String(latitude));
+    formData.append('longitude', String(longitude));
     if (args.filterMinDuration) formData.append('filterMinDurationSeconds', String(args.filterMinDuration));
 
     const headers = {};
@@ -406,7 +427,7 @@ function renderAlertBox(emoji, title, payload) {
     } else {
         for (const c of classifications.slice(0, 5)) {
             const conf = c.confidence != null ? `${(c.confidence * 100).toFixed(0)}%` : '?';
-            const cat  = c.category ? ` [${c.category}]` : '';
+            const cat = c.category ? ` [${c.category}]` : '';
             const line = `  ${c.class} (${conf})${cat}`;
             console.log(`  ║${line.padEnd(47)}║`);
         }
@@ -595,9 +616,9 @@ async function main() {
     log('⏱️', `Timeout: ${args.timeout}s`);
     log('📡', 'Server fires each webhook only when matching tier events exist in the job');
 
-    const startMs   = Date.now();
+    const startMs = Date.now();
     const timeoutMs = args.timeout * 1000;
-    const allPaths  = registeredWebhooks.map(w => w.path);
+    const allPaths = registeredWebhooks.map(w => w.path);
 
     let jobCompletedAt = null;
     const GRACE_MS = 10000; // wait 10s after first job.completed for remaining webhooks
