@@ -91,14 +91,18 @@ async function main() {
     process.env.HEAR_API_KEY = opts.key;
     process.env.HEAR_ENV = opts.env;
 
-    // Dynamic import after env is set (pathToFileURL needed on Windows)
+    // Dynamic import after env is set (pathToFileURL needed on Windows).
+    // Load compiled dist (Node can't strip TS); all commands are re-exported from index.
     const toUrl = (p) => pathToFileURL(p).href;
-    const { createSkill } = await import(toUrl(join(PROJECT_ROOT, 'packages', 'openclaw', 'src', 'index.ts')));
-    const { healthCommand } = await import(toUrl(join(PROJECT_ROOT, 'packages', 'openclaw', 'src', 'commands', 'health.ts')));
-    const { soundsCommand } = await import(toUrl(join(PROJECT_ROOT, 'packages', 'openclaw', 'src', 'commands', 'sounds.ts')));
-    const { usageCommand } = await import(toUrl(join(PROJECT_ROOT, 'packages', 'openclaw', 'src', 'commands', 'usage.ts')));
-    const { jobsCommand } = await import(toUrl(join(PROJECT_ROOT, 'packages', 'openclaw', 'src', 'commands', 'jobs.ts')));
-    const { classifyCommand } = await import(toUrl(join(PROJECT_ROOT, 'packages', 'openclaw', 'src', 'commands', 'classify.ts')));
+    const skillUrl = toUrl(join(PROJECT_ROOT, 'packages', 'openclaw', 'dist', 'index.js'));
+    const {
+        createSkill,
+        healthCommand,
+        soundsCommand,
+        usageCommand,
+        jobsCommand,
+        classifyCommand,
+    } = await import(skillUrl);
 
     const { client, config } = createSkill();
 

@@ -339,25 +339,36 @@ function displayResults(result) {
         log('🧾', `Report: ${result.reportUrl}`);
     }
 
-    // Display classifications (sync mode returns these)
-    if (result.classifications?.length > 0) {
-        log('🤖', `Top classifications:`);
-        result.classifications.slice(0, 10).forEach((c, i) => {
-            const conf = c.confidence != null ? `${(c.confidence * 100).toFixed(0)}%` : '?';
-            const cat = c.category ? ` [${c.category}]` : '';
-            log('  ', `  ${i + 1}. ${c.class} (${conf})${cat}`);
-        });
+    // Per-event records live in events.json blob (ARCH-015) — fetch via
+    // getJobEvents using `${API_BASE_URL}/v1/jobs/{requestId}/events`. The
+    // displayEvents helper below renders them.
+    if (result.eventCount > 0) {
+        log('💡', `Call displayEvents("${result.requestId}") for the per-event records.`);
     }
+}
 
-    // Display noise events (if present in response)
-    if (result.noiseEvents?.length > 0) {
-        log('📈', `Noise events:`);
-        result.noiseEvents.slice(0, 10).forEach((evt) => {
-            const t = evt.startTime != null ? `${evt.startTime.toFixed(1)}s` : '?';
-            const conf = evt.confidence != null ? `${(evt.confidence * 100).toFixed(0)}%` : '?';
-            log('  ', `  [${t}] ${evt.label || evt.class} (${conf})`);
-        });
+// Fetch and display the events.json blob via the SAS-URL envelope.
+async function displayEvents(jobId) {
+    const envelopeUrl = `${API_BASE_URL}/v1/jobs/${jobId}/events`;
+    const envelopeRes = await fetch(envelopeUrl, {
+        headers: { 'X-NCM-Api-Key': API_KEY },
+        signal: AbortSignal.timeout(10000),
+    });
+    const envelope = await envelopeRes.json();
+    if (!envelopeRes.ok) {
+        log('❌', `getJobEvents failed (${envelopeRes.status}): ${envelope.error || envelopeRes.statusText}`);
+        return;
     }
+    const blobRes = await fetch(envelope.downloadUrl, { signal: AbortSignal.timeout(30000) });
+    const blob = await blobRes.json();
+    const events = blob.noiseEvents || [];
+    log('📈', `Events (${envelope.total}):`);
+    events.slice(0, 10).forEach((evt) => {
+        const t = evt.startTime != null ? `${evt.startTime.toFixed(1)}s` : '?';
+        const conf = evt.confidence != null ? `${(evt.confidence * 100).toFixed(0)}%` : '?';
+        const cls = evt.tier1 || evt.label || evt.class || '?';
+        log('  ', `  [${t}] ${cls} (${conf})`);
+    });
 }
 
 // --- Health: Check API Status ----------------------------------------------------
@@ -496,9 +507,7 @@ async function getJob(jobId) {
         if (result.completedAt) log('📊', `Completed: ${result.completedAt}`);
         if (result.reportUrl) log('🧾', `Report: ${result.reportUrl}`);
 
-        if (result.classifications?.length > 0) {
-            displayResults(result);
-        }
+        displayResults(result);
         return result;
     } catch (e) {
         log('❌', `Job fetch failed: ${e.message}`);
@@ -507,6 +516,8 @@ async function getJob(jobId) {
 }
 
 // --- Events: Retrieve Classification Events for a Job ----------------------------
+// ARCH-015: HTTP /events returns a SAS-URL envelope; per-event records live in
+// the events.json blob behind envelope.downloadUrl.
 
 async function getJobEvents(jobId) {
     logSection(`Events: ${jobId}`);
@@ -520,25 +531,29 @@ async function getJobEvents(jobId) {
             signal: AbortSignal.timeout(15000),
         });
 
-        const result = await response.json();
+        const envelope = await response.json();
         if (!response.ok) {
-            log('❌', `Events fetch failed (${response.status}): ${result.error || response.statusText}`);
+            log('❌', `Events fetch failed (${response.status}): ${envelope.error || response.statusText}`);
             return null;
         }
 
-        const events = result.events || result.classifications || [];
-        log('📊', `Events: ${events.length}`);
+        // Follow the SAS URL to the events.json blob — that's where the records live.
+        const blobRes = await fetch(envelope.downloadUrl, { signal: AbortSignal.timeout(30000) });
+        const blob = await blobRes.json();
+        const events = blob.noiseEvents || [];
+
+        log('📊', `Events: ${envelope.total} (showing first 20)`);
         events.slice(0, 20).forEach((evt, i) => {
             const t = evt.startTime != null ? `${evt.startTime.toFixed(1)}s` : '?';
             const conf = evt.confidence != null ? `${(evt.confidence * 100).toFixed(0)}%` : '?';
-            const cls = evt.class || evt.className || evt.label || '?';
-            const cat = evt.category ? ` [${evt.category}]` : '';
+            const cls = evt.tier1 || evt.label || evt.class || '?';
+            const cat = evt.tier2 ? ` [${evt.tier2}]` : '';
             log('  ', `  ${i + 1}. [${t}] ${cls} (${conf})${cat}`);
         });
         if (events.length > 20) {
             log('  ', `  ... and ${events.length - 20} more`);
         }
-        return result;
+        return { envelope, events };
     } catch (e) {
         log('❌', `Events fetch failed: ${e.message}`);
         return null;
@@ -580,7 +595,7 @@ async function pollJobResult(jobId) {
 
             const result = await response.json();
 
-            if (result.status === 'completed' || (result.classifications && result.classifications.length > 0)) {
+            if (result.status === 'completed') {
                 process.stdout.write('\r');
                 log('✅', `Job completed in ${elapsedSec}s`);
                 displayResults(result);
@@ -937,7 +952,7 @@ async function main() {
     if (results.length > 0) {
         const mode = args.poll ? 'classified' : 'accepted';
         log('📊', `${results.length}/${totalJobs} jobs ${mode}`);
-        if (args.poll && results.some(r => r.classifications?.length > 0)) {
+        if (args.poll && results.some(r => r.eventCount > 0)) {
             const totalEvents = results.reduce((sum, r) => sum + (r.eventCount || 0), 0);
             log('🤖', `Total events detected: ${totalEvents}`);
         }
