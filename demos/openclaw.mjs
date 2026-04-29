@@ -57,20 +57,21 @@ function parseArgs() {
   Usage:
     node packages/demo/demos/openclaw.mjs --key <api-key>
     node packages/demo/demos/openclaw.mjs --key <key> --classify <url>
-    node packages/demo/demos/openclaw.mjs s--key <key> --all
+    node packages/demo/demos/openclaw.mjs --key <key> --all
 
   Options:
     --key <key>         API key (or set HEAR_API_KEY)
-    --env <env>         Environment: dev, staging, prod (default: prod)
+    --env <env>         Environment: dev, staging, prod (default: dev)
     --classify <url>    URL to classify (triggers full classify demo)
-    --all               Run all commands including jobs
+    --all               Run all commands plus a local-file classify
+                        using bundled demos/demo-60s.mp3
     --help, -h          Show this help
 `);
         process.exit(0);
     }
 
     return {
-        env: get('--env') || 'prod',
+        env: get('--env') || 'dev',
         key: get('--key') || process.env.HEAR_API_KEY || '',
         classifyUrl: get('--classify'),
         all: args.includes('--all'),
@@ -102,15 +103,16 @@ async function main() {
         usageCommand,
         jobsCommand,
         classifyCommand,
+        classifyFileCommand,
     } = await import(skillUrl);
 
-    const { client, config } = createSkill();
+    const { client, config, version } = createSkill();
 
     // --- Header --------------------------------------------------------------
 
     logSection('OPENCLAW DEMO');
     log('🏛️', `Env: ${config.environment} | API: ${config.baseUrl}${config.apiPath}`);
-    log('🧩', `Skill: @h-ear/openclaw v0.1.0`);
+    log('🧩', `Skill: @h-ear/openclaw v${version}`);
 
     // --- Act 1: Health -------------------------------------------------------
 
@@ -158,10 +160,10 @@ async function main() {
         }
     }
 
-    // --- Act 5: Classification (if --classify) -------------------------------
+    // --- Act 5: URL Classification (if --classify) ---------------------------
 
     if (opts.classifyUrl) {
-        logSection(`Act ${opts.all ? '5' : '4'}: Audio Classification`);
+        logSection(`Act ${opts.all ? '5' : '4'}: URL Classification`);
         logChat(`classify ${opts.classifyUrl}`);
         log('⏱️', 'Submitting audio for classification (async)...');
         try {
@@ -169,6 +171,26 @@ async function main() {
             logResponse(result);
         } catch (err) {
             log('❌', `classify failed: ${err.message}`);
+        }
+    }
+
+    // --- Act 6: Local-File Classification (if --all) -------------------------
+
+    if (opts.all) {
+        const bundledMp3 = join(__dirname, 'demo-60s.mp3');
+        logSection(`Act ${opts.classifyUrl ? '6' : '5'}: Local-File Classification`);
+        logChat(`classify ${bundledMp3}`);
+        log('⏱️', 'Reading bundled demo-60s.mp3, submitting, polling for results...');
+        try {
+            const result = await classifyFileCommand(
+                client,
+                bundledMp3,
+                { threshold: 0.3, waitForResult: true },
+                (msg) => log('  ', msg),
+            );
+            logResponse(result);
+        } catch (err) {
+            log('❌', `local-file classify failed: ${err.message}`);
         }
     }
 
