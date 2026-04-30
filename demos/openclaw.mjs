@@ -61,7 +61,7 @@ function parseArgs() {
 
   Options:
     --key <key>         API key (or set HEAR_API_KEY)
-    --env <env>         Environment: dev, staging, prod (default: dev)
+    --env <env>         Environment: dev, staging, prod (default: prod)
     --classify <url>    URL to classify (triggers full classify demo)
     --all               Run all commands plus a local-file classify
                         using bundled demos/demo-60s.mp3
@@ -71,7 +71,7 @@ function parseArgs() {
     }
 
     return {
-        env: get('--env') || 'dev',
+        env: get('--env') || 'prod',
         key: get('--key') || process.env.HEAR_API_KEY || '',
         classifyUrl: get('--classify'),
         all: args.includes('--all'),

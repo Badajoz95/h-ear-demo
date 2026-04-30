@@ -6,15 +6,14 @@
  * via the Enterprise API (v1/classify). Supports multiple environments.
  * Auth: --oauth (OAuth 2.1 + PKCE via Auth0, browser login) or --key <api-key>
  *
- * Usage:
- *   node packages/demo/demos/webcam.mjs --probe                          # Probe camera (local API)
- *   node packages/demo/demos/webcam.mjs --env dev --probe                # Probe camera (dev API)
+ * Usage (defaults to prod API):
+ *   node packages/demo/demos/webcam.mjs --probe                          # Probe camera
  *   node packages/demo/demos/webcam.mjs --capture --duration 10          # Capture 10s audio
  *   node packages/demo/demos/webcam.mjs --full --oauth                   # capture + upload (OAuth, fire-and-forget)
  *   node packages/demo/demos/webcam.mjs --full --key <api-key>           # capture + upload (API key)
  *   node packages/demo/demos/webcam.mjs --full --oauth --poll            # capture + upload + poll for results
  *   node packages/demo/demos/webcam.mjs --full --oauth --gather          # capture all, then upload all
- *   node packages/demo/demos/webcam.mjs --env prod --full --oauth        # Full pipeline against prod
+ *   node packages/demo/demos/webcam.mjs --env dev --full --oauth         # Advanced: target dev/staging
  *
  * Camera: TP-Link Tapo C100 (Home Security Wi-Fi Camera)
  *   Model: Tapo C100 | Power: 5V 0.6A | Audio: Built-in mic + speaker
@@ -117,7 +116,7 @@ const VALID_ENVS = ['local', 'dev', 'staging', 'prod'];
 function parseArgs() {
     const args = process.argv.slice(2);
     const envIdx = args.indexOf('--env');
-    const env = envIdx >= 0 && args[envIdx + 1] ? args[envIdx + 1] : 'local';
+    const env = envIdx >= 0 && args[envIdx + 1] ? args[envIdx + 1] : 'prod';
     if (!VALID_ENVS.includes(env)) {
         console.error(`  Invalid env: ${env}. Valid: ${VALID_ENVS.join(', ')}`);
         process.exit(1);
@@ -343,7 +342,7 @@ function displayResults(result) {
     // getJobEvents using `${API_BASE_URL}/v1/jobs/{requestId}/events`. The
     // displayEvents helper below renders them.
     if (result.eventCount > 0) {
-        log('💡', `Call displayEvents("${result.requestId}") for the per-event records.`);
+        log('🔍', `Call displayEvents("${result.requestId}") for the per-event records.`);
     }
 }
 
@@ -707,7 +706,7 @@ async function main() {
     node packages/demo/demos/webcam.mjs --events <id> --key <key>                  Retrieve job events
 
   Options:
-    --env <env>            Target environment: local, dev, staging, prod (default: local)
+    --env <env>            Target environment: local, dev, staging, prod (default: prod)
     --probe                Test camera RTSP connectivity
     --capture              Capture audio from camera
     --upload               Upload captured audio to Enterprise API

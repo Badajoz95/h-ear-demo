@@ -79,21 +79,19 @@ Configure OpenClaw to use Ollama — add to `~/.openclaw/openclaw.json`:
 
 > **Alternative**: Use Anthropic API (`anthropic-messages`) with a funded API key for better skill comprehension. Ollama is free but requires explicit prompting.
 
-## 4. Build & Link h-ear CLI
+## 4. Install h-ear CLI
 
-From the NCM monorepo root:
+From any directory:
 
 ```bash
-cd packages/openclaw
-npm run build
-npm link
+npm install -g @h-ear/openclaw
 h-ear help
 ```
 
-Verify:
+Verify (skill defaults to prod):
 
 ```bash
-HEAR_API_KEY=ncm_sk_... HEAR_ENV=dev h-ear health
+HEAR_API_KEY=ncm_sk_... h-ear health
 # → Status: healthy
 ```
 
@@ -102,7 +100,6 @@ HEAR_API_KEY=ncm_sk_... HEAR_ENV=dev h-ear health
 ```bash
 openclaw skills install h-ear
 openclaw config set skills.entries.h-ear.apiKey "ncm_sk_..."
-openclaw config set skills.entries.h-ear.env.HEAR_ENV dev
 ```
 
 Create the listener skill:
@@ -117,7 +114,6 @@ Write `~/.openclaw/workspace/skills/h-ear-listen/SKILL.md` — see [SKILL.md tem
 
 ```bash
 openclaw config set env.vars.HEAR_API_KEY "ncm_sk_..."
-openclaw config set env.vars.HEAR_ENV dev
 openclaw config set env.vars.LISTEN_RTSP_URL "rtsp://user:pass@192.168.0.13/stream1"
 ```
 
@@ -200,7 +196,7 @@ Send: "what can you hear from the camera?"
 ---
 name: h-ear-listen
 description: "Listen to what's happening via RTSP camera audio — capture and classify sounds using h-ear."
-metadata: {"openclaw": {"requires": {"env": ["HEAR_API_KEY", "HEAR_ENV", "LISTEN_RTSP_URL"]}, "primaryEnv": "HEAR_API_KEY"}}
+metadata: {"openclaw": {"requires": {"env": ["HEAR_API_KEY", "LISTEN_RTSP_URL"]}, "primaryEnv": "HEAR_API_KEY"}}
 ---
 
 # H-ear Listen — Camera Audio Monitor

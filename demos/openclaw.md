@@ -62,7 +62,7 @@ node packages/demo/demos/openclaw.mjs --key <key> --all
 ```
   -- OPENCLAW DEMO -----------------------------------------------
   Env: prod | API: https://api.h-ear.world/api
-  Skill: @h-ear/openclaw v0.1.0
+  Skill: @h-ear/openclaw (version reported at runtime)
 ```
 
 ### Act 2: Health + Discovery

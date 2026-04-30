@@ -15,8 +15,10 @@ OAuth opens a browser for Auth0 login on first run. Token is cached at `~/.h-ear
 
 ## Usage
 
+All examples target prod by default. Pass `--env dev` (or `staging`/`local`) to override.
+
 ```bash
-# Probe camera (local API)
+# Probe camera
 node packages/demo/demos/webcam.mjs --probe
 
 # Capture 10s audio only
@@ -31,20 +33,14 @@ node packages/demo/demos/webcam.mjs --full --key <key> --poll
 # OAuth (zero touch — browser login, then cached)
 node packages/demo/demos/webcam.mjs --full --oauth
 
-# OAuth against prod
-node packages/demo/demos/webcam.mjs --env prod --full --oauth
-
 # Capture all files first, then upload all (batch pattern)
 node packages/demo/demos/webcam.mjs --full --key <key> --gather
 
 # Multiple jobs with interval
 node packages/demo/demos/webcam.mjs --full --key <key> --jobs 3 --duration 5 --interval 10
 
-# Target a different environment
-node packages/demo/demos/webcam.mjs --env dev --full --key <key>
-
 # API health check (no auth required)
-node packages/demo/demos/webcam.mjs --health --env dev
+node packages/demo/demos/webcam.mjs --health
 
 # List available sound classes (no auth required)
 node packages/demo/demos/webcam.mjs --classes
@@ -63,7 +59,7 @@ node packages/demo/demos/webcam.mjs --events <jobId> --key <key>
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--env <env>` | `local` | Target environment: local, dev, staging, prod |
+| `--env <env>` | `prod` | Target environment: local, dev, staging, prod |
 | `--probe` | | Test camera RTSP connectivity |
 | `--capture` | | Capture audio from camera |
 | `--upload` | | Upload captured audio |

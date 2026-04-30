@@ -37,7 +37,7 @@ const ENV_CONFIG = {
         apiUrl:   'https://api-dev.h-ear.world/api',
     },
     staging: {
-        clientId: 'iFW8yjp6ddXKyMH3UbkxoWZNXiMLJ3nS',
+        clientId: 'iFW8yjp6BohCCaY14PDNZnM6zhCIcvvq',
         audience: 'https://api.ncm.staging',
         apiUrl:   'https://api-staging.h-ear.world/api',
     },
